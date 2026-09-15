@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extrator de Frame MP4 (Anti-CORS por Link)</title>
+    <title>Extrator de Frame MP4 (Range Parcial 15MB)</title>
     <style>
         :root {
             --bg-color: #0d1117;
@@ -195,17 +195,17 @@
         <h1>Extrator de Frame MP4</h1>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('link')">Link Direto (Via Proxy)</div>
-            <div class="tab" onclick="switchTab('file')">Arquivo Local</div>
+            <div class="tab active" onclick="switchTab('link')">Link Direto (Baixar trecho 15MB)</div>
+            <div class="tab" onclick="switchTab('file')">Arquivo Local (PC)</div>
         </div>
 
-        <!-- Aba Link com Proxy Anti-CORS -->
+        <!-- Aba Link com Range Parcial -->
         <div id="tab-link" class="tab-content active">
             <div class="form-group">
                 <label for="videoUrl">Cole o link direto do .mp4</label>
                 <input type="url" id="videoUrl" placeholder="https://exemplo.com/video.mp4">
             </div>
-            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkViaProxy()">Extrair Frame do Meio</button>
+            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkComRange()">Baixar Trecho e Extrair Frame</button>
         </div>
 
         <!-- Aba Arquivo Local -->
@@ -261,7 +261,7 @@
             document.getElementById('status').innerText = msg;
         }
 
-        async function processarLinkViaProxy() {
+        async function processarLinkComRange() {
             const url = document.getElementById('videoUrl').value.trim();
             const btn = document.getElementById('extractLinkBtn');
             if (!url) {
@@ -270,22 +270,40 @@
             }
 
             btn.disabled = true;
-            atualizarStatus('Baixando trecho/vídeo via proxy para liberar o CORS...');
+            atualizarStatus('Conectando ao servidor e solicitando até 15MB iniciais...');
 
-            // Usando um proxy público seguro para contornar o CORS no client-side
-            const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(url);
+            const MAX_BYTES = 15 * 1024 * 1024; // 15 Megabytes
 
             try {
-                // Fazemos o fetch através do proxy para trazer para a RAM do navegador como Blob
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error('Falha ao baixar o arquivo pelo link informado.');
-                
+                // Tenta requisição parcial (Range) para economizar banda e baixar só o começo
+                let response = await fetch(url, {
+                    headers: {
+                        Range: `bytes=0-${MAX_BYTES}`
+                    }
+                }).catch(() => null);
+
+                // Se falhar por CORS estrito, tentamos via proxy leve apenas para os metadados/bytes parciais
+                if (!response || !response.ok) {
+                    atualizarStatus('Servidor bloqueou requisição direta. Tentando via rota alternativa...');
+                    const proxyFallback = `https://corsproxy.io/?` + encodeURIComponent(url);
+                    response = await fetch(proxyFallback);
+                }
+
+                if (!response || !response.ok) {
+                    throw new Error('Não foi possível baixar os dados do vídeo devido a restrições do servidor.');
+                }
+
+                atualizarStatus('Baixando trecho para a RAM local...');
                 const blob = await response.blob();
+                
+                // Converte o pedaço baixado em um objeto Blob local da RAM
                 const blobUrl = URL.createObjectURL(blob);
+                atualizarStatus('Trecho carregado localmente na RAM. Processando frame...');
                 
                 executarExtracao(blobUrl, 'extractLinkBtn', true);
+
             } catch (error) {
-                atualizarStatus('Erro: O link falhou ou o servidor bloqueou o proxy. Tente usar a aba "Arquivo Local".');
+                atualizarStatus('Erro: O servidor de destino bloqueou o acesso direto. Por favor, utilize a aba "Arquivo Local".');
                 btn.disabled = false;
             }
         }
@@ -298,7 +316,7 @@
             }
             const file = fileInput.files[0];
             const blobUrl = URL.createObjectURL(file);
-            executarExtracao(blobUrl, 'extractFileBtn', false);
+            executarExtracao(blobUrl, 'extractFileBtn', true);
         }
 
         function executarExtracao(videoSource, btnId, isBlobUrl) {
@@ -307,19 +325,17 @@
             const resultSection = document.getElementById('resultSection');
 
             resultSection.style.display = 'none';
-            atualizarStatus('Processando metadados do vídeo...');
 
             video.src = videoSource;
             video.load();
 
             video.onloadedmetadata = function() {
                 const tempoMeio = video.duration / 2;
-                atualizarStatus(`Duração: ${video.duration.toFixed(2)}s. Buscando frame do meio (${tempoMeio.toFixed(2)}s)...`);
+                atualizarStatus(`Vídeo local pronto! Duração: ${video.duration.toFixed(2)}s. Capturando frame do meio (${tempoMeio.toFixed(2)}s)...`);
                 video.currentTime = tempoMeio;
             };
 
             video.onseeked = function() {
-                atualizarStatus('Capturando frame...');
                 try {
                     const canvas = document.getElementById('canvasOutput');
                     canvas.width = video.videoWidth;
@@ -332,16 +348,16 @@
                     document.getElementById('base64Output').value = imagemBase64Global;
                     
                     resultSection.style.display = 'block';
-                    atualizarStatus('Frame extraído com sucesso!');
+                    atualizarStatus('Frame extraído com sucesso do arquivo local!');
                 } catch (e) {
-                    atualizarStatus('Erro ao processar os pixels do vídeo.');
+                    atualizarStatus('Erro ao processar os pixels no Canvas.');
                 }
                 btn.disabled = false;
                 if (isBlobUrl) URL.revokeObjectURL(videoSource);
             };
 
             video.onerror = function() {
-                atualizarStatus('Erro ao carregar o vídeo na memória.');
+                atualizarStatus('Erro ao carregar o vídeo baixado.');
                 btn.disabled = false;
                 if (isBlobUrl) URL.revokeObjectURL(videoSource);
             };
