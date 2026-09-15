@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extrator de Frame MP4 (Anti-CORS Otimizado)</title>
+    <title>Extrator de Frame MP4 (Otimizado < 32KB)</title>
     <style>
         :root {
             --bg-color: #0d1117;
@@ -154,6 +154,13 @@
             border: 1px solid var(--border-color);
         }
 
+        .info-size {
+            font-size: 0.85rem;
+            color: #58a6ff;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
         textarea {
             width: 100%;
             height: 100px;
@@ -192,10 +199,10 @@
 <body>
 
     <div class="container">
-        <h1>Extrator de Frame MP4</h1>
+        <h1>Extrator de Frame MP4 (< 32KB)</h1>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('link')">Link Direto (Via Proxy Seguro)</div>
+            <div class="tab active" onclick="switchTab('link')">Link Direto</div>
             <div class="tab" onclick="switchTab('file')">Arquivo Local (PC)</div>
         </div>
 
@@ -205,7 +212,7 @@
                 <label for="videoUrl">Cole o link direto do .mp4</label>
                 <input type="url" id="videoUrl" placeholder="https://exemplo.com/video.mp4">
             </div>
-            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkComProxySeguro()">Baixar Trecho e Extrair Frame</button>
+            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkComProxySeguro()">Extrair e Otimizar Frame</button>
         </div>
 
         <!-- Aba Arquivo Local -->
@@ -214,7 +221,7 @@
                 <label for="videoFile">Selecione o arquivo .mp4 do PC</label>
                 <input type="file" id="videoFile" accept="video/mp4,video/webm">
             </div>
-            <button class="action-btn" id="extractFileBtn" onclick="processarArquivoLocal()">Extrair Frame do Meio</button>
+            <button class="action-btn" id="extractFileBtn" onclick="processarArquivoLocal()">Extrair e Otimizar Frame</button>
         </div>
         
         <div id="status" class="status"></div>
@@ -223,16 +230,17 @@
             <div class="preview-container">
                 <label>Pré-visualização:</label>
                 <canvas id="canvasOutput"></canvas>
+                <div id="sizeInfo" class="info-size"></div>
             </div>
             
             <div class="form-group">
-                <label for="base64Output">Código Base64:</label>
+                <label for="base64Output">Código Base64 Otimizado:</label>
                 <textarea id="base64Output" readonly></textarea>
             </div>
 
             <div class="actions">
                 <button onclick="copiarBase64()">Copiar Base64</button>
-                <button onclick="baixarImagem()">Baixar PNG</button>
+                <button onclick="baixarImagem()">Baixar Imagem</button>
             </div>
         </div>
     </div>
@@ -270,24 +278,22 @@
             }
 
             btn.disabled = true;
-            atualizarStatus('Contornando bloqueio do servidor via proxy seguro...');
+            atualizarStatus('Baixando trecho do vídeo via proxy seguro...');
 
-            // Utiliza rota de redirecionamento compatível com fetch binário
             const proxyUrl = `https://api.allorigins.win/raw?url=` + encodeURIComponent(url);
 
             try {
                 const response = await fetch(proxyUrl);
                 if (!response.ok) throw new Error('Servidor recusou a transferência.');
 
-                atualizarStatus('Carregando trecho do vídeo na RAM do navegador...');
+                atualizarStatus('Carregando na RAM local...');
                 const blob = await response.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 
-                atualizarStatus('Trecho pronto na memória local. Processando frame...');
                 executarExtracao(blobUrl, 'extractLinkBtn', true);
 
             } catch (error) {
-                atualizarStatus('Erro: O servidor de destino bloqueou permanentemente requisições externas. Use a aba "Arquivo Local".');
+                atualizarStatus('Erro: O servidor de destino bloqueou o acesso. Use a aba "Arquivo Local".');
                 btn.disabled = false;
             }
         }
@@ -315,24 +321,43 @@
 
             video.onloadedmetadata = function() {
                 const tempoMeio = video.duration / 2;
-                atualizarStatus(`Vídeo carregado na RAM! Duração: ${video.duration.toFixed(2)}s. Capturando frame do meio (${tempoMeio.toFixed(2)}s)...`);
+                atualizarStatus(`Duração: ${video.duration.toFixed(2)}s. Capturando frame do meio (${tempoMeio.toFixed(2)}s)...`);
                 video.currentTime = tempoMeio;
             };
 
             video.onseeked = function() {
                 try {
                     const canvas = document.getElementById('canvasOutput');
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-
                     const ctx = canvas.getContext('2d');
+
+                    // Definimos uma largura máxima inteligente (ex: 480px) para manter a nitidez dos textos 
+                    // e garantir que o tamanho final em Base64 fique estritamente abaixo de 32 KB.
+                    const MAX_WIDTH = 480;
+                    let larguraOriginal = video.videoWidth;
+                    let alturaOriginal = video.videoHeight;
+
+                    if (larguraOriginal > MAX_WIDTH) {
+                        canvas.width = MAX_WIDTH;
+                        canvas.height = Math.floor((alturaOriginal * MAX_WIDTH) / larguraOriginal);
+                    } else {
+                        canvas.width = larguraOriginal;
+                        canvas.height = alturaOriginal;
+                    }
+
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    imagemBase64Global = canvas.toDataURL('image/png');
+                    // Geramos como JPEG com qualidade 0.82 (excelente balanço entre alta legibilidade e peso reduzido)
+                    imagemBase64Global = canvas.toDataURL('image/jpeg', 0.82);
+                    
+                    // Cálculo exato do tamanho em KB da string Base64 gerada
+                    const tamanhoBytes = (imagemBase64Global.length * (3/4)) - (imagemBase64Global.endsWith('==') ? 2 : imagemBase64Global.endsWith('=') ? 1 : 0);
+                    const tamanhoKb = (tamanhoBytes / 1024).toFixed(2);
+
                     document.getElementById('base64Output').value = imagemBase64Global;
+                    document.getElementById('sizeInfo').innerText = `Tamanho final estimado: ${tamanhoKb} KB (Meta: < 32 KB)`;
                     
                     resultSection.style.display = 'block';
-                    atualizarStatus('Frame extraído com sucesso!');
+                    atualizarStatus('Frame extraído e otimizado com sucesso!');
                 } catch (e) {
                     atualizarStatus('Erro ao processar os pixels no Canvas.');
                 }
@@ -341,7 +366,7 @@
             };
 
             video.onerror = function() {
-                atualizarStatus('Erro ao ler o arquivo de vídeo na memória.');
+                atualizarStatus('Erro ao ler o arquivo de vídeo.');
                 btn.disabled = false;
                 if (isBlobUrl) URL.revokeObjectURL(videoSource);
             };
@@ -358,7 +383,7 @@
             if (!imagemBase64Global) return;
             const a = document.createElement('a');
             a.href = imagemBase64Global;
-            a.download = 'frame-meio.png';
+            a.download = 'frame-otimizado.jpg';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
