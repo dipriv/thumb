@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extrator de Frame MP4 (Range Parcial 15MB)</title>
+    <title>Extrator de Frame MP4 (Anti-CORS Otimizado)</title>
     <style>
         :root {
             --bg-color: #0d1117;
@@ -195,17 +195,17 @@
         <h1>Extrator de Frame MP4</h1>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('link')">Link Direto (Baixar trecho 15MB)</div>
+            <div class="tab active" onclick="switchTab('link')">Link Direto (Via Proxy Seguro)</div>
             <div class="tab" onclick="switchTab('file')">Arquivo Local (PC)</div>
         </div>
 
-        <!-- Aba Link com Range Parcial -->
+        <!-- Aba Link -->
         <div id="tab-link" class="tab-content active">
             <div class="form-group">
                 <label for="videoUrl">Cole o link direto do .mp4</label>
                 <input type="url" id="videoUrl" placeholder="https://exemplo.com/video.mp4">
             </div>
-            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkComRange()">Baixar Trecho e Extrair Frame</button>
+            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkComProxySeguro()">Baixar Trecho e Extrair Frame</button>
         </div>
 
         <!-- Aba Arquivo Local -->
@@ -261,7 +261,7 @@
             document.getElementById('status').innerText = msg;
         }
 
-        async function processarLinkComRange() {
+        async function processarLinkComProxySeguro() {
             const url = document.getElementById('videoUrl').value.trim();
             const btn = document.getElementById('extractLinkBtn');
             if (!url) {
@@ -270,40 +270,24 @@
             }
 
             btn.disabled = true;
-            atualizarStatus('Conectando ao servidor e solicitando até 15MB iniciais...');
+            atualizarStatus('Contornando bloqueio do servidor via proxy seguro...');
 
-            const MAX_BYTES = 15 * 1024 * 1024; // 15 Megabytes
+            // Utiliza rota de redirecionamento compatível com fetch binário
+            const proxyUrl = `https://api.allorigins.win/raw?url=` + encodeURIComponent(url);
 
             try {
-                // Tenta requisição parcial (Range) para economizar banda e baixar só o começo
-                let response = await fetch(url, {
-                    headers: {
-                        Range: `bytes=0-${MAX_BYTES}`
-                    }
-                }).catch(() => null);
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Servidor recusou a transferência.');
 
-                // Se falhar por CORS estrito, tentamos via proxy leve apenas para os metadados/bytes parciais
-                if (!response || !response.ok) {
-                    atualizarStatus('Servidor bloqueou requisição direta. Tentando via rota alternativa...');
-                    const proxyFallback = `https://corsproxy.io/?` + encodeURIComponent(url);
-                    response = await fetch(proxyFallback);
-                }
-
-                if (!response || !response.ok) {
-                    throw new Error('Não foi possível baixar os dados do vídeo devido a restrições do servidor.');
-                }
-
-                atualizarStatus('Baixando trecho para a RAM local...');
+                atualizarStatus('Carregando trecho do vídeo na RAM do navegador...');
                 const blob = await response.blob();
-                
-                // Converte o pedaço baixado em um objeto Blob local da RAM
                 const blobUrl = URL.createObjectURL(blob);
-                atualizarStatus('Trecho carregado localmente na RAM. Processando frame...');
                 
+                atualizarStatus('Trecho pronto na memória local. Processando frame...');
                 executarExtracao(blobUrl, 'extractLinkBtn', true);
 
             } catch (error) {
-                atualizarStatus('Erro: O servidor de destino bloqueou o acesso direto. Por favor, utilize a aba "Arquivo Local".');
+                atualizarStatus('Erro: O servidor de destino bloqueou permanentemente requisições externas. Use a aba "Arquivo Local".');
                 btn.disabled = false;
             }
         }
@@ -331,7 +315,7 @@
 
             video.onloadedmetadata = function() {
                 const tempoMeio = video.duration / 2;
-                atualizarStatus(`Vídeo local pronto! Duração: ${video.duration.toFixed(2)}s. Capturando frame do meio (${tempoMeio.toFixed(2)}s)...`);
+                atualizarStatus(`Vídeo carregado na RAM! Duração: ${video.duration.toFixed(2)}s. Capturando frame do meio (${tempoMeio.toFixed(2)}s)...`);
                 video.currentTime = tempoMeio;
             };
 
@@ -348,7 +332,7 @@
                     document.getElementById('base64Output').value = imagemBase64Global;
                     
                     resultSection.style.display = 'block';
-                    atualizarStatus('Frame extraído com sucesso do arquivo local!');
+                    atualizarStatus('Frame extraído com sucesso!');
                 } catch (e) {
                     atualizarStatus('Erro ao processar os pixels no Canvas.');
                 }
@@ -357,7 +341,7 @@
             };
 
             video.onerror = function() {
-                atualizarStatus('Erro ao carregar o vídeo baixado.');
+                atualizarStatus('Erro ao ler o arquivo de vídeo na memória.');
                 btn.disabled = false;
                 if (isBlobUrl) URL.revokeObjectURL(videoSource);
             };
