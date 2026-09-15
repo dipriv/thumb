@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extrator de Frame em Base64</title>
+    <title>Extrator de Frame MP4 (Anti-CORS por Link)</title>
     <style>
         :root {
             --bg-color: #0d1117;
@@ -55,24 +55,57 @@
             font-weight: 600;
         }
 
-        input[type="url"] {
+        input[type="file"], input[type="url"] {
             width: 100%;
             padding: 10px;
             background-color: var(--input-bg);
             border: 1px solid var(--border-color);
             border-radius: 6px;
             color: var(--text-color);
-            font-size: 1rem;
+            font-size: 0.9rem;
             box-sizing: border-box;
         }
 
-        input[type="url"]:focus {
-            outline: none;
-            border-color: #58a6ff;
-            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
+        input[type="file"]::file-selector-button {
+            background-color: #21262d;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
         }
 
-        button {
+        .tabs {
+            display: flex;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tab {
+            padding: 8px 16px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-weight: 600;
+            color: #8b949e;
+            flex: 1;
+            text-align: center;
+        }
+
+        .tab.active {
+            color: #f0f6fc;
+            border-bottom-color: #58a6ff;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        button.action-btn {
             background-color: var(--accent-color);
             color: white;
             border: none;
@@ -85,7 +118,7 @@
             transition: background-color 0.2s;
         }
 
-        button:hover {
+        button.action-btn:hover {
             background-color: var(--accent-hover);
         }
 
@@ -99,6 +132,7 @@
             margin-top: 12px;
             font-size: 0.9rem;
             color: #8b949e;
+            word-break: break-all;
         }
 
         .result-section {
@@ -143,6 +177,11 @@
         .actions button {
             background-color: #21262d;
             border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            flex: 1;
         }
 
         .actions button:hover {
@@ -153,20 +192,36 @@
 <body>
 
     <div class="container">
-        <h1>Extrator de Frame MP4 (Base64)</h1>
+        <h1>Extrator de Frame MP4</h1>
         
-        <div class="form-group">
-            <label for="videoUrl">Link Direto do Vídeo (.mp4)</label>
-            <input type="url" id="videoUrl" placeholder="https://exemplo.com/video.mp4" autocomplete="off">
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('link')">Link Direto (Via Proxy)</div>
+            <div class="tab" onclick="switchTab('file')">Arquivo Local</div>
         </div>
 
-        <button id="extractBtn" onclick="extrairFrameDoMeio()">Extrair Frame do Meio</button>
+        <!-- Aba Link com Proxy Anti-CORS -->
+        <div id="tab-link" class="tab-content active">
+            <div class="form-group">
+                <label for="videoUrl">Cole o link direto do .mp4</label>
+                <input type="url" id="videoUrl" placeholder="https://exemplo.com/video.mp4">
+            </div>
+            <button class="action-btn" id="extractLinkBtn" onclick="processarLinkViaProxy()">Extrair Frame do Meio</button>
+        </div>
+
+        <!-- Aba Arquivo Local -->
+        <div id="tab-file" class="tab-content">
+            <div class="form-group">
+                <label for="videoFile">Selecione o arquivo .mp4 do PC</label>
+                <input type="file" id="videoFile" accept="video/mp4,video/webm">
+            </div>
+            <button class="action-btn" id="extractFileBtn" onclick="processarArquivoLocal()">Extrair Frame do Meio</button>
+        </div>
         
         <div id="status" class="status"></div>
 
         <div id="resultSection" class="result-section">
             <div class="preview-container">
-                <label>Pré-visualização do Frame Capturado:</label>
+                <label>Pré-visualização:</label>
                 <canvas id="canvasOutput"></canvas>
             </div>
             
@@ -177,70 +232,118 @@
 
             <div class="actions">
                 <button onclick="copiarBase64()">Copiar Base64</button>
-                <button onclick="baixarImagem()">Baixar Imagem (PNG)</button>
+                <button onclick="baixarImagem()">Baixar PNG</button>
             </div>
         </div>
     </div>
 
-    <!-- Vídeo oculto usado para processamento -->
-    <video id="hiddenVideo" crossorigin="anonymous" style="display:none;"></video>
+    <video id="hiddenVideo" style="display:none;"></video>
 
     <script>
         let imagemBase64Global = "";
 
-        function atualizarStatus(mensagem) {
-            document.getElementById('status').innerText = mensagem;
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            if (tabName === 'link') {
+                document.querySelectorAll('.tab')[0].classList.add('active');
+                document.getElementById('tab-link').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab')[1].classList.add('active');
+                document.getElementById('tab-file').classList.add('active');
+            }
+            document.getElementById('status').innerText = '';
+            document.getElementById('resultSection').style.display = 'none';
         }
 
-        function extrairFrameDoMeio() {
-            const urlInput = document.getElementById('videoUrl').value.trim();
-            const btn = document.getElementById('extractBtn');
-            const video = document.getElementById('hiddenVideo');
-            const resultSection = document.getElementById('resultSection');
+        function atualizarStatus(msg) {
+            document.getElementById('status').innerText = msg;
+        }
 
-            if (!urlInput) {
-                alert('Por favor, insira um link de vídeo válido.');
+        async function processarLinkViaProxy() {
+            const url = document.getElementById('videoUrl').value.trim();
+            const btn = document.getElementById('extractLinkBtn');
+            if (!url) {
+                alert('Insira um link válido.');
                 return;
             }
 
-            resultSection.style.display = 'none';
             btn.disabled = true;
-            atualizarStatus('Carregando metadados do vídeo...');
+            atualizarStatus('Baixando trecho/vídeo via proxy para liberar o CORS...');
 
-            video.src = urlInput;
+            // Usando um proxy público seguro para contornar o CORS no client-side
+            const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(url);
+
+            try {
+                // Fazemos o fetch através do proxy para trazer para a RAM do navegador como Blob
+                const response = await fetch(proxyUrl);
+                if (!response.ok) throw new Error('Falha ao baixar o arquivo pelo link informado.');
+                
+                const blob = await response.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                
+                executarExtracao(blobUrl, 'extractLinkBtn', true);
+            } catch (error) {
+                atualizarStatus('Erro: O link falhou ou o servidor bloqueou o proxy. Tente usar a aba "Arquivo Local".');
+                btn.disabled = false;
+            }
+        }
+
+        function processarArquivoLocal() {
+            const fileInput = document.getElementById('videoFile');
+            if (fileInput.files.length === 0) {
+                alert('Selecione um arquivo.');
+                return;
+            }
+            const file = fileInput.files[0];
+            const blobUrl = URL.createObjectURL(file);
+            executarExtracao(blobUrl, 'extractFileBtn', false);
+        }
+
+        function executarExtracao(videoSource, btnId, isBlobUrl) {
+            const btn = document.getElementById(btnId);
+            const video = document.getElementById('hiddenVideo');
+            const resultSection = document.getElementById('resultSection');
+
+            resultSection.style.display = 'none';
+            atualizarStatus('Processando metadados do vídeo...');
+
+            video.src = videoSource;
             video.load();
 
-            // Evento disparado quando o navegador já sabe a duração e dimensões do vídeo
             video.onloadedmetadata = function() {
                 const tempoMeio = video.duration / 2;
-                atualizarStatus(`Vídeo carregado. Duração: ${video.duration.toFixed(2)}s. Pulando para o meio (${tempoMeio.toFixed(2)}s)...`);
+                atualizarStatus(`Duração: ${video.duration.toFixed(2)}s. Buscando frame do meio (${tempoMeio.toFixed(2)}s)...`);
                 video.currentTime = tempoMeio;
             };
 
-            // Evento disparado quando o vídeo consegue posicionar o tempo exato solicitado
             video.onseeked = function() {
                 atualizarStatus('Capturando frame...');
-                
-                const canvas = document.getElementById('canvasOutput');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+                try {
+                    const canvas = document.getElementById('canvasOutput');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
 
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                // Converter o canvas para formato Base64 (PNG)
-                imagemBase64Global = canvas.toDataURL('image/png');
-                
-                document.getElementById('base64Output').value = imagemBase64Global;
-                resultSection.style.display = 'block';
-                atualizarStatus('Frame extraído com sucesso!');
+                    imagemBase64Global = canvas.toDataURL('image/png');
+                    document.getElementById('base64Output').value = imagemBase64Global;
+                    
+                    resultSection.style.display = 'block';
+                    atualizarStatus('Frame extraído com sucesso!');
+                } catch (e) {
+                    atualizarStatus('Erro ao processar os pixels do vídeo.');
+                }
                 btn.disabled = false;
+                if (isBlobUrl) URL.revokeObjectURL(videoSource);
             };
 
-            // Tratamento de erro de link ou CORS
             video.onerror = function() {
-                atualizarStatus('Erro ao carregar o vídeo. Verifique se o link está correto e se o servidor permite acesso externo (CORS).');
+                atualizarStatus('Erro ao carregar o vídeo na memória.');
                 btn.disabled = false;
+                if (isBlobUrl) URL.revokeObjectURL(videoSource);
             };
         }
 
@@ -248,14 +351,14 @@
             const textarea = document.getElementById('base64Output');
             textarea.select();
             document.execCommand('copy');
-            alert('Código Base64 copiado para a área de transferência!');
+            alert('Base64 copiado!');
         }
 
         function baixarImagem() {
             if (!imagemBase64Global) return;
             const a = document.createElement('a');
             a.href = imagemBase64Global;
-            a.download = 'frame-meio-video.png';
+            a.download = 'frame-meio.png';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
